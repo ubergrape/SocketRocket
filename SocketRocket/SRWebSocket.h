@@ -120,6 +120,7 @@ extern NSString *const SRHTTPResponseErrorKey;
 @interface NSURLRequest (SRCertificateAdditions)
 
 @property (nonatomic, retain, readonly) NSArray *SR_SSLPinnedCertificates;
+@property (nonatomic, retain, readonly) NSArray *SR_SSLPinnedCertificatePublicKeys;
 
 @end
 
@@ -128,6 +129,7 @@ extern NSString *const SRHTTPResponseErrorKey;
 @interface NSMutableURLRequest (SRCertificateAdditions)
 
 @property (nonatomic, retain) NSArray *SR_SSLPinnedCertificates;
+@property (nonatomic, retain) NSArray *SR_SSLPinnedCertificatePublicKeys;
 
 @end
 

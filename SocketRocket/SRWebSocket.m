@@ -592,7 +592,7 @@ static __strong NSData *CRLFCRLF;
         [_outputStream setProperty:(__bridge id)kCFStreamSocketSecurityLevelNegotiatedSSL forKey:(__bridge id)kCFStreamPropertySocketSecurityLevel];
         
         // If we're using pinned certs, don't validate the certificate chain
-        if ([_urlRequest SR_SSLPinnedCertificates].count) {
+        if ([_urlRequest SR_SSLPinnedCertificates].count || [_urlRequest SR_SSLPinnedCertificatePublicKeys].count) {
             [SSLOptions setValue:@NO forKey:(__bridge id)kCFStreamSSLValidatesCertificateChain];
         }
         
@@ -1413,6 +1413,7 @@ static const size_t SRFrameHeaderOverhead = 32;
     if (_secure && !_pinnedCertFound && (eventCode == NSStreamEventHasBytesAvailable || eventCode == NSStreamEventHasSpaceAvailable)) {
         
         NSArray *sslCerts = [_urlRequest SR_SSLPinnedCertificates];
+        NSArray *sslCertKeys = [_urlRequest SR_SSLPinnedCertificatePublicKeys];
         if (sslCerts) {
             SecTrustRef secTrust = (__bridge SecTrustRef)[aStream propertyForKey:(__bridge id)kCFStreamPropertySSLPeerTrust];
             if (secTrust) {
@@ -1432,19 +1433,40 @@ static const size_t SRFrameHeaderOverhead = 32;
                     }
                 }
             }
-            
-            if (!_pinnedCertFound) {
-                dispatch_async(_workQueue, ^{
-                    [self _failWithError:[NSError errorWithDomain:SRWebSocketErrorDomain code:23556 userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"Invalid server cert"] forKey:NSLocalizedDescriptionKey]]];
-                });
-                return;
+        }
+        
+        // ADDED BY LUKAS, 11.11.2015
+        // START
+        else if (sslCertKeys) {
+            SecTrustRef secTrust = (__bridge SecTrustRef)[aStream propertyForKey:(__bridge id)kCFStreamPropertySSLPeerTrust];
+            SecKeyRef publicKey = SecTrustCopyPublicKey(secTrust);
+            if (secTrust) {
+                NSData *keyData = CFBridgingRelease(publicKey);
+                
+                for (id ref in sslCertKeys) {
+                    SecKeyRef trustedKey = (__bridge SecKeyRef)ref;
+                    NSData *trustedKeyData = CFBridgingRelease(trustedKey);
+                    
+                    if ([keyData isEqualToData:trustedKeyData]) {
+                        _pinnedCertFound = YES;
+                        break;
+                    }
+                }
             }
-            
-            if (aStream == _outputStream && _pinnedCertFound) {
-                dispatch_async(_workQueue, ^{
-                    [self didConnect];
-                });
-            }
+        }
+        // END
+        
+        if (!_pinnedCertFound) {
+            dispatch_async(_workQueue, ^{
+                [self _failWithError:[NSError errorWithDomain:SRWebSocketErrorDomain code:23556 userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"Invalid server cert"] forKey:NSLocalizedDescriptionKey]]];
+            });
+            return;
+        }
+        
+        if (aStream == _outputStream && _pinnedCertFound) {
+            dispatch_async(_workQueue, ^{
+                [self didConnect];
+            });
         }
     }
 
@@ -1614,6 +1636,11 @@ static const size_t SRFrameHeaderOverhead = 32;
     return [NSURLProtocol propertyForKey:@"SR_SSLPinnedCertificates" inRequest:self];
 }
 
+- (NSArray *)SR_SSLPinnedCertificatePublicKeys;
+{
+    return [NSURLProtocol propertyForKey:@"SR_SSLPinnedCertificatePublicKeys" inRequest:self];
+}
+
 @end
 
 @implementation  NSMutableURLRequest (SRCertificateAdditions)
@@ -1626,6 +1653,16 @@ static const size_t SRFrameHeaderOverhead = 32;
 - (void)setSR_SSLPinnedCertificates:(NSArray *)SR_SSLPinnedCertificates;
 {
     [NSURLProtocol setProperty:SR_SSLPinnedCertificates forKey:@"SR_SSLPinnedCertificates" inRequest:self];
+}
+
+- (NSArray *)SR_SSLPinnedCertificatePublicKeys;
+{
+    return [NSURLProtocol propertyForKey:@"SR_SSLPinnedCertificatePublicKeys" inRequest:self];
+}
+
+- (void)setSR_SSLPinnedCertificatePublicKeys:(NSArray *)SR_SSLPinnedCertificatePublicKeys;
+{
+    [NSURLProtocol setProperty:SR_SSLPinnedCertificatePublicKeys forKey:@"SR_SSLPinnedCertificatePublicKeys" inRequest:self];
 }
 
 @end
