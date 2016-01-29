@@ -7,7 +7,7 @@
 //
 
 #import "TCViewController.h"
-#import <SocketRocket/SRWebSocket.h>
+#import "SRWebSocket.h"
 #import "TCChatCell.h"
 
 @interface TCMessage : NSObject

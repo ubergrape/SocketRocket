@@ -7,6 +7,7 @@
 //
 
 #import "SRTWebSocketOperation.h"
+#import "SRWebSocket.h"
 
 @interface SRTWebSocketOperation ()
 
