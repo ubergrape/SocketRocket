@@ -435,6 +435,12 @@ static __strong NSData *CRLFCRLF;
 {
     NSInteger responseCode = CFHTTPMessageGetResponseStatusCode(_receivedHTTPHeaders);
     
+    if (responseCode == 401) {
+        SRFastLog(@"Request failed with response code %d", responseCode);
+        [self _failWithError:[NSError errorWithDomain:SRWebSocketErrorDomain code:2401 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"401: Not Authorized %ld", (long)responseCode], SRHTTPResponseErrorKey:@(responseCode)}]];
+        return;
+    }
+    
     if (responseCode >= 400) {
         SRFastLog(@"Request failed with response code %d", responseCode);
         [self _failWithError:[NSError errorWithDomain:SRWebSocketErrorDomain code:2132 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"received bad response code from server %ld", (long)responseCode], SRHTTPResponseErrorKey:@(responseCode)}]];
