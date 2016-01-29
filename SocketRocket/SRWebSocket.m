@@ -1416,10 +1416,38 @@ static const size_t SRFrameHeaderOverhead = 32;
 
 - (void)stream:(NSStream *)aStream handleEvent:(NSStreamEvent)eventCode;
 {
+    // Still connected? Safety check to prevent crashes with invalid certificates
+    if (self == nil) {
+        return;
+    }
+    
     if (_secure && !_pinnedCertFound && (eventCode == NSStreamEventHasBytesAvailable || eventCode == NSStreamEventHasSpaceAvailable)) {
         
         NSArray *sslCerts = [_urlRequest SR_SSLPinnedCertificates];
-        NSArray *sslCertKeys = [_urlRequest SR_SSLPinnedCertificatePublicKeys];
+        //        NSArray *sslCertKeys = [_urlRequest SR_SSLPinnedCertificatePublicKeys];
+        //        if (sslCerts) {
+        //            SecTrustRef secTrust = (__bridge SecTrustRef)[aStream propertyForKey:(__bridge id)kCFStreamPropertySSLPeerTrust];
+        //            if (secTrust) {
+        //                NSInteger numCerts = SecTrustGetCertificateCount(secTrust);
+        //                for (NSInteger i = 0; i < numCerts && !_pinnedCertFound; i++) {
+        //                    SecCertificateRef cert = SecTrustGetCertificateAtIndex(secTrust, i);
+        //                    NSData *certData = CFBridgingRelease(SecCertificateCopyData(cert));
+        //
+        //                    for (id ref in sslCerts) {
+        //                        SecCertificateRef trustedCert = (__bridge SecCertificateRef)ref;
+        //                        NSData *trustedCertData = CFBridgingRelease(SecCertificateCopyData(trustedCert));
+        //
+        //                        if ([trustedCertData isEqualToData:certData]) {
+        //                            _pinnedCertFound = YES;
+        //                            break;
+        //                        }
+        //                    }
+        //                }
+        //            }
+        //        }
+        
+        // ADDED BY LUKAS, 11.11.2015
+        // START
         if (sslCerts) {
             SecTrustRef secTrust = (__bridge SecTrustRef)[aStream propertyForKey:(__bridge id)kCFStreamPropertySSLPeerTrust];
             if (secTrust) {
@@ -1427,12 +1455,19 @@ static const size_t SRFrameHeaderOverhead = 32;
                 for (NSInteger i = 0; i < numCerts && !_pinnedCertFound; i++) {
                     SecCertificateRef cert = SecTrustGetCertificateAtIndex(secTrust, i);
                     NSData *certData = CFBridgingRelease(SecCertificateCopyData(cert));
+                    SecKeyRef serverPublicKey = [self getPublicKeyFromCertificate:certData];
+                    NSData *serverPublicKeyData = [self getPublicKeyBitsFromKey:serverPublicKey];
+                    CFRelease(serverPublicKey);
                     
                     for (id ref in sslCerts) {
                         SecCertificateRef trustedCert = (__bridge SecCertificateRef)ref;
                         NSData *trustedCertData = CFBridgingRelease(SecCertificateCopyData(trustedCert));
                         
-                        if ([trustedCertData isEqualToData:certData]) {
+                        SecKeyRef trustedCertificatePublicKey = [self getPublicKeyFromCertificate:trustedCertData];
+                        NSData *trustedCertificatePublicKeyData = [self getPublicKeyBitsFromKey:trustedCertificatePublicKey];
+                        CFRelease(trustedCertificatePublicKey);
+                        
+                        if ([serverPublicKeyData isEqualToData:trustedCertificatePublicKeyData]) {
                             _pinnedCertFound = YES;
                             break;
                         }
@@ -1443,23 +1478,23 @@ static const size_t SRFrameHeaderOverhead = 32;
         
         // ADDED BY LUKAS, 11.11.2015
         // START
-        else if (sslCertKeys) {
-            SecTrustRef secTrust = (__bridge SecTrustRef)[aStream propertyForKey:(__bridge id)kCFStreamPropertySSLPeerTrust];
-            SecKeyRef publicKey = SecTrustCopyPublicKey(secTrust);
-            if (secTrust) {
-                NSData *keyData = CFBridgingRelease(publicKey);
-                
-                for (id ref in sslCertKeys) {
-                    SecKeyRef trustedKey = (__bridge SecKeyRef)ref;
-                    NSData *trustedKeyData = CFBridgingRelease(trustedKey);
-                    
-                    if ([keyData isEqualToData:trustedKeyData]) {
-                        _pinnedCertFound = YES;
-                        break;
-                    }
-                }
-            }
-        }
+        //        if (sslCertKeys) {
+        //            SecTrustRef secTrust = (__bridge SecTrustRef)[aStream propertyForKey:(__bridge id)kCFStreamPropertySSLPeerTrust];
+        //            SecKeyRef publicKey = SecTrustCopyPublicKey(secTrust);
+        //            if (publicKey && secTrust) {
+        //                for (id ref in sslCertKeys) {
+        //                    NSData *trustedKeyData = [self getPublicKeyBitsFromKey:publicKey];
+        //                    SecKeyRef keyToCompare = (__bridge SecKeyRef)ref;
+        //                    NSData *keyData = [self getPublicKeyBitsFromKey:keyToCompare];
+        //
+        //                    if ([keyData isEqualToData:trustedKeyData]) {
+        //                        _pinnedCertFound = YES;
+        //                        break;
+        //                    }
+        //                }
+        //            }
+        //        }
+        
         // END
         
         if (!_pinnedCertFound) {
@@ -1563,6 +1598,57 @@ static const size_t SRFrameHeaderOverhead = 32;
                 break;
         }
     });
+}
+
+- (NSData *)getPublicKeyBitsFromKey:(SecKeyRef)givenKey {
+    
+    static const uint8_t publicKeyIdentifier[] = "com.chatgrape.publickey";
+    NSData *publicTag = [[NSData alloc] initWithBytes:publicKeyIdentifier length:sizeof(publicKeyIdentifier)];
+    
+    OSStatus sanityCheck = noErr;
+    NSData * publicKeyBits = nil;
+    
+    NSMutableDictionary * queryPublicKey = [[NSMutableDictionary alloc] init];
+    [queryPublicKey setObject:(__bridge id)kSecClassKey forKey:(__bridge id)kSecClass];
+    [queryPublicKey setObject:publicTag forKey:(__bridge id)kSecAttrApplicationTag];
+    [queryPublicKey setObject:(__bridge id)kSecAttrKeyTypeRSA forKey:(__bridge id)kSecAttrKeyType];
+    
+    // Temporarily add key to the Keychain, return as data:
+    NSMutableDictionary * attributes = [queryPublicKey mutableCopy];
+    [attributes setObject:(__bridge id)givenKey forKey:(__bridge id)kSecValueRef];
+    [attributes setObject:@YES forKey:(__bridge id)kSecReturnData];
+    CFTypeRef result;
+    sanityCheck = SecItemAdd((__bridge CFDictionaryRef) attributes, &result);
+    if (sanityCheck == errSecSuccess) {
+        publicKeyBits = CFBridgingRelease(result);
+        
+        // Remove from Keychain again:
+        (void)SecItemDelete((__bridge CFDictionaryRef) queryPublicKey);
+    }
+    
+    return publicKeyBits;
+}
+
+- (SecKeyRef)getPublicKeyFromCertificate:(NSData *)data
+{
+    //create certificate.
+    CFDataRef dataRef=CFDataCreate(kCFAllocatorDefault, [data bytes], (CFIndex)[data length]);
+    SecCertificateRef certiRef=SecCertificateCreateWithData(kCFAllocatorDefault, dataRef);
+    (CFRelease(dataRef));
+    //evaluate certificate.
+    CFArrayRef certs = CFArrayCreate(kCFAllocatorDefault, (const void **) &certiRef, 1, NULL);
+    SecPolicyRef policy = SecPolicyCreateBasicX509();
+    SecTrustRef trust;
+    SecTrustCreateWithCertificates(certs, policy, &trust);
+    (CFRelease(certs));
+    SecTrustResultType trustResult;
+    SecTrustEvaluate(trust, &trustResult);
+    //get publickey
+    SecKeyRef oPublicKey = SecTrustCopyPublicKey(trust);
+    (CFRelease(trust));
+    (CFRelease(policy));
+    (CFRelease(certiRef));
+    return oPublicKey;
 }
 
 @end
