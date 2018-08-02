@@ -441,6 +441,12 @@ static __strong NSData *CRLFCRLF;
         return;
     }
     
+    if (responseCode == 502) {
+        SRFastLog(@"Request failed with response code %d", responseCode);
+        [self _failWithError:[NSError errorWithDomain:SRWebSocketErrorDomain code:2502 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"502: Maintenance %ld", (long)responseCode], SRHTTPResponseErrorKey:@(responseCode)}]];
+        return;
+    }
+    
     if (responseCode >= 400) {
         SRFastLog(@"Request failed with response code %d", responseCode);
         [self _failWithError:[NSError errorWithDomain:SRWebSocketErrorDomain code:2132 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"received bad response code from server %ld", (long)responseCode], SRHTTPResponseErrorKey:@(responseCode)}]];
