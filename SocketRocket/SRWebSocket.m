@@ -383,6 +383,25 @@ NSString *const SRHTTPResponseErrorKey = @"HTTPResponseStatusCode";
 - (void)_HTTPHeadersDidFinish;
 {
     NSInteger responseCode = CFHTTPMessageGetResponseStatusCode(_receivedHTTPHeaders);
+    
+    if (responseCode == 401) {
+        SRDebugLog(@"Request failed with response code %d", responseCode);
+        NSError *error = SRHTTPErrorWithCodeDescription(responseCode, 2401,
+                                                        [NSString stringWithFormat:@"401: Not Authorized %ld",
+                                                         (int)responseCode]);
+        [self _failWithError:error];
+        return;
+    }
+    
+    if (responseCode == 502) {
+        SRDebugLog(@"Request failed with response code %d", responseCode);
+        NSError *error = SRHTTPErrorWithCodeDescription(responseCode, 2502,
+                                                        [NSString stringWithFormat:@"502: Maintenance %ld",
+                                                         (int)responseCode]);
+        [self _failWithError:error];
+        return;
+    }
+
     if (responseCode >= 400) {
         SRDebugLog(@"Request failed with response code %d", responseCode);
         NSError *error = SRHTTPErrorWithCodeDescription(responseCode, 2132,
